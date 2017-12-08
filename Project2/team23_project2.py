@@ -399,35 +399,9 @@ class Simulator:
             self.cycle += 1
     
 
-
-#========================================
-# Variables
-#========================================
-PC = 96
-
 #========================================
 # Function Definitions
 #========================================
-
-
-
-
-
-
-def disOutput(disFile, binary, PC, instString, doSpacing):
-    fullLine = binary
-    if (doSpacing):
-        fullLine = binary[0] + " " + binary[1:6] + " " + binary[6:11] + " " + binary[11:16] + " "
-        fullLine += binary[16:21] + " " + binary[21:26] + " " + binary[26:]
-    
-    if (instString != "data"):
-        fullLine += "\t" + str(PC)
-        fullLine += "\t" + instString
-    else:
-        fullLine += "\t" + str(PC)
-        fullLine += "\t" + str(twosComp(binary, 32))
-
-    disFile.write(fullLine + "\n")
 
 
 #========================================
