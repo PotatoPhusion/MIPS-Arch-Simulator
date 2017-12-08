@@ -12,7 +12,7 @@
     <Name>Project2</Name>
     <RootNamespace>Project2</RootNamespace>
     <LaunchProvider>Standard Python launcher</LaunchProvider>
-    <CommandLineArguments>-i t1test_bin.txt -o team23_out</CommandLineArguments>
+    <CommandLineArguments>-i t5_nohaz_bin.txt -o team23_out</CommandLineArguments>
     <EnableNativeCodeDebugging>False</EnableNativeCodeDebugging>
     <IsWindowsApplication>False</IsWindowsApplication>
     <InterpreterId>Global|PythonCore|2.7</InterpreterId>
