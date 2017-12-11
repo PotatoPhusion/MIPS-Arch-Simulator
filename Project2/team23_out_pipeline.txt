@@ -24,19 +24,19 @@ R16:	0	0	0	0	0	0	0	0
 R24:	0	0	0	0	0	0	0	0	
 
 Cache
-Set 0: LRU=
-	Entry 0:
-	Entry 1:
-Set 1: LRU=
-	Entry 0:
-	Entry 1:
-Set 2: LRU=
-	Entry 0:
-	Entry 1:
-Set 3: LRU=
-	Entry 0:
-	Entry 1:
+Set 0: LRU=0
+	Entry 0:[(0,0,0)<0,0>]
+	Entry 1:[(0,0,0)<0,0>]
+Set 1: LRU=0
+	Entry 0:[(0,0,0)<0,0>]
+	Entry 1:[(0,0,0)<0,0>]
+Set 2: LRU=0
+	Entry 0:[(0,0,0)<0,0>]
+	Entry 1:[(0,0,0)<0,0>]
+Set 3: LRU=0
+	Entry 0:[(0,0,0)<0,0>]
+	Entry 1:[(0,0,0)<0,0>]
 
 Data
-140:	0	1	2	3	4	5	6	7	
-140:	8	
+176:	0	1	2	3	4	5	6	7	
+176:	8	

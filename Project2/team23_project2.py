@@ -1,6 +1,8 @@
 from sys import argv
 import math
 
+mainMemory = []
+
 #========================================
 # Command Line Arguments
 #========================================
@@ -58,7 +60,10 @@ class Disassembler:
                 self.instStrings.append(self.toString(self.binaryList[i]))
                 PC += 4
             else:
+                self.valids.append(int(self.binaryList[i][:1], 2))
+                self.addrs.append(PC)
                 self.mem.append(self.twosComp(self.binaryList[i]))
+                PC += 4
     
     ############
     # Breaks up the instruction and stores it in the appropriate list
@@ -70,6 +75,7 @@ class Disassembler:
             self.valids.append(0)
             return False
 
+        self.valids.append(1)
         self.addrs.append(PC)
         self.instructions.append(inst)
         self.numInstrs += 1
@@ -215,41 +221,93 @@ class Disassembler:
             PC += 4
             index += 1
 
+
+#========================================
+# Fetch Class
+#========================================
+class Fetch:
+    def __init__(self):
+        print "Init Fetch"
+    def run(self):
+        return False
+
+#========================================
+# Issue Class
+#========================================
+class Issue:
+    def run(self):
+        print "Run Issue"
+
+#========================================
+# ALU Class
+#========================================
+class LogicUnit:
+    def run(self):
+        print "Run ALU"
+
+#========================================
+# Memory Class
+#========================================
+class MemoryUnit:
+    def run(self):
+        print "Run MemoryUnit"
+
+#========================================
+# WriteBack Class
+#========================================
+class WriteBack:
+    def run(self):
+        print "Run WriteBack Unit"
+
+#========================================
+# Cache Class
+#========================================
+class Cache:
+
+    # valid, dirty, tag, data, data
+    cacheSets = [[[0,0,0,0,0], [0,0,0,0,0]],
+                 [[0,0,0,0,0], [0,0,0,0,0]],
+                 [[0,0,0,0,0], [0,0,0,0,0]],
+                 [[0,0,0,0,0], [0,0,0,0,0]]]
+
+    lruBit = [0,0,0,0]
+
+    instructions = []
+
+    def __init__(self):
+        print mainMemory
+
+    def accessMem(self, memIndex, instructionIndex, isWriteToMem, dataToWrite):
+        address = 96 + (memIndex * 4)
+
+        if (address % 8 == 0):
+            dataWord = 0
+            address1 = address
+            address2 = address + 4
+            if (address % 8 != 0):
+                dataWord = 1
+                address1 = address - 4
+                address2 = address
+
+        data1 = instructions[(address1 - 96) / 4]
+        data2 = instructions[(address2 - 96) / 4]
+
+        if (memIndex != -1 and isWriteToMem == True):
+            if (dataWord == 0):
+                data1 = dataToWrite
+            elif (dataWord == 1):
+                data2 = dataToWrite
+
+
+        return
+
+    def flush(self):
+        return
         
 #========================================
 # Simulator Class
 #========================================
 class Simulator:
-
-    class Fetch:
-        def __init__(self):
-            print "Init Fetch"
-        def run(self):
-            print "Run Fetch"
-            return False
-
-    class Issue:
-        def run(self):
-            print "Run Issue"
-
-    class LogicUnit:
-        def run(self):
-            print "Run ALU"
-
-    class MemoryUnit:
-        def run(self):
-            print "Run MemoryUnit"
-
-    class WriteBack:
-        def run(self):
-            print "Run WriteBack Unit"
-
-
-    fetch = Fetch()
-    issue = Issue()
-    ALU = LogicUnit()
-    MEM = MemoryUnit()
-    WB = WriteBack()
 
     registers = [0] * 32
     instructions = []
@@ -265,7 +323,6 @@ class Simulator:
     numInstructions = 0
     cycle = 1
 
-
     #****************************************************
     # Constructor for the Simulator Class
     #****************************************************
@@ -279,6 +336,20 @@ class Simulator:
         self.args1 = args1
         self.args2 = args2
         self.args3 = args3
+
+
+    
+
+
+    fetch = Fetch()
+    issue = Issue()
+    ALU = LogicUnit()
+    MEM = MemoryUnit()
+    WB = WriteBack()
+    cache = Cache()
+    dis = Disassembler(instructions)
+
+    
 
     #****************************************************
     # Prints all information about the state of the
@@ -353,29 +424,61 @@ class Simulator:
         ##### Cache Output #####
         pipelineFile.write("Cache\n")
         pipelineFile.write("Set 0: LRU=")
-        # LRU value goes here
+        pipelineFile.write(str(self.cache.lruBit[0]))
         pipelineFile.write("\n\tEntry 0:")
-        # Cache info goes here
+        pipelineFile.write("[(" + str(self.cache.cacheSets[0][0][0]) + "," +
+                           str(self.cache.cacheSets[0][0][1]) + "," +
+                           str(self.cache.cacheSets[0][0][2]) + ")<" +
+                           str(self.cache.cacheSets[0][0][3]) + "," +
+                           str(self.cache.cacheSets[0][0][4]) + ">]")
         pipelineFile.write("\n\tEntry 1:")
-        # Cache info goes here
+        pipelineFile.write("[(" + str(self.cache.cacheSets[0][1][0]) + "," +
+                           str(self.cache.cacheSets[0][1][1]) + "," +
+                           str(self.cache.cacheSets[0][1][2]) + ")<" +
+                           str(self.cache.cacheSets[0][1][3]) + "," +
+                           str(self.cache.cacheSets[0][1][4]) + ">]")
         pipelineFile.write("\nSet 1: LRU=")
-        # LRU value goes here
+        pipelineFile.write(str(self.cache.lruBit[1]))
         pipelineFile.write("\n\tEntry 0:")
-        # Cache info goes here
+        pipelineFile.write("[(" + str(self.cache.cacheSets[1][0][0]) + "," +
+                           str(self.cache.cacheSets[1][0][1]) + "," +
+                           str(self.cache.cacheSets[1][0][2]) + ")<" +
+                           str(self.cache.cacheSets[1][0][3]) + "," +
+                           str(self.cache.cacheSets[1][0][4]) + ">]")
         pipelineFile.write("\n\tEntry 1:")
-        # Cache info goes here
+        pipelineFile.write("[(" + str(self.cache.cacheSets[1][1][0]) + "," +
+                           str(self.cache.cacheSets[1][1][1]) + "," +
+                           str(self.cache.cacheSets[1][1][2]) + ")<" +
+                           str(self.cache.cacheSets[1][1][3]) + "," +
+                           str(self.cache.cacheSets[1][1][4]) + ">]")
         pipelineFile.write("\nSet 2: LRU=")
-        # LRU value goes here
+        pipelineFile.write(str(self.cache.lruBit[2]))
         pipelineFile.write("\n\tEntry 0:")
-        # Cache info goes here
+        pipelineFile.write("[(" + str(self.cache.cacheSets[2][0][0]) + "," +
+                           str(self.cache.cacheSets[2][0][1]) + "," +
+                           str(self.cache.cacheSets[2][0][2]) + ")<" +
+                           str(self.cache.cacheSets[2][0][3]) + "," +
+                           str(self.cache.cacheSets[2][0][4]) + ">]")
         pipelineFile.write("\n\tEntry 1:")
-        # Cache info goes here
+        pipelineFile.write("[(" + str(self.cache.cacheSets[2][1][0]) + "," +
+                           str(self.cache.cacheSets[2][1][1]) + "," +
+                           str(self.cache.cacheSets[2][1][2]) + ")<" +
+                           str(self.cache.cacheSets[2][1][3]) + "," +
+                           str(self.cache.cacheSets[2][1][4]) + ">]")
         pipelineFile.write("\nSet 3: LRU=")
-        # LRU value goes here
+        pipelineFile.write(str(self.cache.lruBit[3]))
         pipelineFile.write("\n\tEntry 0:")
-        # Cache info goes here
+        pipelineFile.write("[(" + str(self.cache.cacheSets[3][0][0]) + "," +
+                           str(self.cache.cacheSets[3][0][1]) + "," +
+                           str(self.cache.cacheSets[3][0][2]) + ")<" +
+                           str(self.cache.cacheSets[3][0][3]) + "," +
+                           str(self.cache.cacheSets[3][0][4]) + ">]")
         pipelineFile.write("\n\tEntry 1:")
-        # Cache info goes here
+        pipelineFile.write("[(" + str(self.cache.cacheSets[3][1][0]) + "," +
+                           str(self.cache.cacheSets[3][1][1]) + "," +
+                           str(self.cache.cacheSets[3][1][2]) + ")<" +
+                           str(self.cache.cacheSets[3][1][3]) + "," +
+                           str(self.cache.cacheSets[3][1][4]) + ">]")
         pipelineFile.write("\n\n")
 
         ##### Data Output #####
@@ -409,13 +512,17 @@ class Simulator:
 #========================================
 
 
-instructions = inFile.readlines()
+mainMemory = inFile.readlines()
 
-dis = Disassembler(instructions)
+# Trim new line characters off of strings
+for i in range(len(mainMemory)):
+    mainMemory[i] = mainMemory[i][:32]
+
+dis = Disassembler(mainMemory)
 dis.disassemble()
 dis.output(disFile)
 
-sim = Simulator(dis.instructions, dis.opcodes, dis.mem, dis.valids,
+sim = Simulator(dis.binaryList, dis.opcodes, dis.mem, dis.valids,
                 dis.addrs, dis.args1, dis.args2, dis.args3, dis.numInstrs)
 
 sim.run()
