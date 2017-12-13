@@ -2,6 +2,7 @@ from sys import argv
 import math
 
 mainMemory = []
+registers = [0] * 33
 
 #========================================
 # Command Line Arguments
@@ -226,38 +227,89 @@ class Disassembler:
 # Fetch Class
 #========================================
 class Fetch:
-    def __init__(self):
-        print "Init Fetch"
-    def run(self):
-        return False
 
-#========================================
-# Issue Class
-#========================================
-class Issue:
+    preIssueBuffer = [-1, -1, -1, -1]
+
+    def __init__(self, _cache):
+        self.cache = _cache
+        
     def run(self):
-        print "Run Issue"
+        index = (Simulator.PC - 96) / 4
+        isHit, word = self.cache.accessMem(index, 0, False, 0);
+        if (isHit):
+            for i in range(len(self.preIssueBuffer)):
+                if (self.preIssueBuffer[i] == -1):
+                    self.preIssueBuffer[i] = index
+                    Simulator.PC += 4
+                    if (int(word[1:6], 2) == 0 and int(word[-6:], 2) == 13):
+                        # BREAK Found
+                        return False # Placeholder
+                    break
+        else:
+            return True
+        return True
 
 #========================================
 # ALU Class
 #========================================
 class LogicUnit:
+
+    preALUBuff = [-1, -1]
+    postALUBuff = [-1, -1]      # value, register
+
+    def __init__(self, instructions, opcode, args1, args2, args3):
+        self.instructions = instructions
+        self.opcode = opcode
+        self.args1 = args1
+        self.args2 = args2
+        self.args3 = args3
+
+    def advanceBuffer(self):
+        self.preALUBuff[0] = self.preALUBuff[1]
+        self.preALUBuff[1] = -1
+
     def run(self):
-        print "Run ALU"
+        index = self.preALUBuff[0]
+        if (self.preALUBuff[0] != -1):
+            if (self.opcode[index] == 0 and (int(self.instructions[index], 2)& 63) == 32):   # ADD
+                self.postALUBuff = [self.args1[index] + self.args2[index], self.args3[index]]
+                self.advanceBuffer()
+            elif (self.opcode[index] == 8):                                                  # ADDI
+                self.postALUBuff = [self.args1[index] + self.args3[index], self.args2[index]]
+                self.advanceBuffer()
 
 #========================================
 # Memory Class
 #========================================
 class MemoryUnit:
     def run(self):
-        print "Run MemoryUnit"
+        return
 
 #========================================
 # WriteBack Class
 #========================================
 class WriteBack:
+    def run(self, postALUBuff):
+        registers[postALUBuff[1]] = postALUBuff[0]
+
+#========================================
+# Issue Class
+#========================================
+class Issue:
+
+    def adjustBuffer(self):
+        for i in range(len(Fetch.preIssueBuffer) - 1):
+            Fetch.preIssueBuffer[i] = Fetch.preIssueBuffer[i + 1]
+            Fetch.preIssueBuffer[i + 1] = -1
+
     def run(self):
-        print "Run WriteBack Unit"
+        if (Fetch.preIssueBuffer[0] != -1):
+            if (LogicUnit.preALUBuff[0] == -1):
+                LogicUnit.preALUBuff[0] = Fetch.preIssueBuffer[0]
+                self.adjustBuffer()
+            elif (LogicUnit.preALUBuff[1] == -1):
+                LogicUnit.preALUBuff[1] = Fetch.preIssueBuffer[0]
+                self.adjustBuffer()
 
 #========================================
 # Cache Class
@@ -272,10 +324,7 @@ class Cache:
 
     lruBit = [0,0,0,0]
 
-    instructions = []
-
-    def __init__(self):
-        print mainMemory
+    justMissedList = []
 
     def accessMem(self, memIndex, instructionIndex, isWriteToMem, dataToWrite):
         address = 96 + (memIndex * 4)
@@ -284,13 +333,13 @@ class Cache:
             dataWord = 0
             address1 = address
             address2 = address + 4
-            if (address % 8 != 0):
-                dataWord = 1
-                address1 = address - 4
-                address2 = address
+        if (address % 8 != 0):
+            dataWord = 1
+            address1 = address - 4
+            address2 = address
 
-        data1 = instructions[(address1 - 96) / 4]
-        data2 = instructions[(address2 - 96) / 4]
+        data1 = mainMemory[(address1 - 96) / 4]
+        data2 = mainMemory[(address2 - 96) / 4]
 
         if (memIndex != -1 and isWriteToMem == True):
             if (dataWord == 0):
@@ -298,8 +347,55 @@ class Cache:
             elif (dataWord == 1):
                 data2 = dataToWrite
 
+        set = address & 24
+        set = set >> 3
+        tag = address >> 5
 
-        return
+        cacheTag = self.cacheSets[set][self.lruBit[set]][2]     # 3rd element contains the tag
+        tempAddress = (dataWord << 2) + (cacheTag << 5) + (set << 3)
+
+        if (address == tempAddress):    # Cache Hit
+            if (not isWriteToMem):
+                self.lruBit[set] = 1
+                return True, self.cacheSets[set][self.lruBit[set]][3 + dataWord]    # Offset for requested word
+        else:                           # Cache Miss
+            for k in range(len(self.justMissedList)):
+                if (address == self.justMissedList[k]):      # Second Miss
+                    lru = 5
+                    overwriteIndex = 0
+                    for i in range(len(self.lruBit)):
+                        if (self.lruBit[i] < lru):
+                            lru = self.lruBit[i]
+                            overwriteIndex = i
+                    if (self.cacheSets[set][self.lruBit[set]][1] == 1):
+                        wbAddr = self.cacheSets[set][self.lruBit[set]][2]   # tag
+                        wbAddr = (wbAddr << 5) + (set << 3)                 # Revert to address
+
+                        # Store last season's data in memory
+                        if (wbAddr >= (Simulator.numInstructions * 4) + 96):
+                            mainMemory[(wbAddr - 96) / 4] = self.cacheSets[set][self.lruBit[set]][3]
+                        if (wbAddr + 4 >= (Simulator.numInstructions * 4) + 96):
+                            mainMemory[(wbAddr - 92) / 4] = self.cacheSets[set][self.lruBit[set]][4]
+
+                    # Put the fresh, juicy data into cache
+                    self.cacheSets[set][self.lruBit[set]][0] = 1        # Valid: we are writing a block
+                    self.cacheSets[set][self.lruBit[set]][1] = 0        # reset the dirty bit
+                    if (isWriteToMem):
+                        self.cacheSets[set][self.lruBit[set]][1] = 1    # dirty if data mem is dirty again, INSTRUCTIONS ARE NEVER DIRTY
+                    self.cacheSets[set][self.lruBit[set]][2] = tag      # update the tag
+                    self.cacheSets[set][self.lruBit[set]][3] = data1    # update the first word
+                    self.cacheSets[set][self.lruBit[set]][4] = data2    # update the second word
+                    self.lruBit[set] = (self.lruBit[set] + 1) % 2       # set LRU to show block is recently used
+
+                    # Finally
+                    return True, self.cacheSets[set][(self.lruBit[set] + 1) % 2][dataWord + 3]  # dataWord was the actual word that
+                                                                                                # generated the hit
+            self.justMissedList.append(address)               # First miss
+            return False, 0
+                    
+                
+
+        return False, 0
 
     def flush(self):
         return
@@ -309,7 +405,6 @@ class Cache:
 #========================================
 class Simulator:
 
-    registers = [0] * 32
     instructions = []
     opcodes = []
     memory = []
@@ -322,6 +417,7 @@ class Simulator:
 
     numInstructions = 0
     cycle = 1
+    PC = 96
 
     #****************************************************
     # Constructor for the Simulator Class
@@ -336,17 +432,18 @@ class Simulator:
         self.args1 = args1
         self.args2 = args2
         self.args3 = args3
+        self.ALU = LogicUnit(insts, opcodes, args1, args2, args3)
 
 
     
 
 
-    fetch = Fetch()
     issue = Issue()
-    ALU = LogicUnit()
+    
     MEM = MemoryUnit()
     WB = WriteBack()
     cache = Cache()
+    fetch = Fetch(cache)
     dis = Disassembler(instructions)
 
     
@@ -361,24 +458,30 @@ class Simulator:
 
         pipelineFile.write("\nPre-Issue Buffer:\n")
         pipelineFile.write("\tEntry 0:\t")
-        # Buffer 0 contents go here
+        if (Fetch.preIssueBuffer[0] != -1):
+            pipelineFile.write(self.dis.toString(self.instructions[Fetch.preIssueBuffer[0]]))
         pipelineFile.write('\n')
         pipelineFile.write("\tEntry 1:\t")
-        # Buffer 1 contents go here
+        if (Fetch.preIssueBuffer[1] != -1):
+            pipelineFile.write(self.dis.toString(self.instructions[Fetch.preIssueBuffer[1]]))
         pipelineFile.write('\n')
         pipelineFile.write("\tEntry 2:\t")
-        # Buffer 2 contents go here
+        if (Fetch.preIssueBuffer[2] != -1):
+            pipelineFile.write(self.dis.toString(self.instructions[Fetch.preIssueBuffer[2]]))
         pipelineFile.write('\n')
         pipelineFile.write("\tEntry 3:\t")
-        # Buffer 3 contents go here
+        if (Fetch.preIssueBuffer[3] != -1):
+            pipelineFile.write(self.dis.toString(self.instructions[Fetch.preIssueBuffer[3]]))
         pipelineFile.write('\n')
 
         pipelineFile.write("Pre_ALU Queue:\n")
         pipelineFile.write("\tEntry 0:\t")
-        # Entry 0 goes here
+        if (LogicUnit.preALUBuff[0] != -1):
+            pipelineFile.write(self.dis.toString(self.instructions[LogicUnit.preALUBuff[0]]))
         pipelineFile.write('\n')
         pipelineFile.write("\tEntry 1:\t")
-        # Entry 1 goes here
+        if (LogicUnit.preALUBuff[1] != -1):
+            pipelineFile.write(self.dis.toString(self.instructions[LogicUnit.preALUBuff[1]]))
         pipelineFile.write('\n')
 
         pipelineFile.write("Post_ALU Queue:\n")
@@ -403,82 +506,82 @@ class Simulator:
         pipelineFile.write("Registers\n")
         pipelineFile.write("R00:\t")
         for i in range(8):
-            pipelineFile.write(str(self.registers[i]) + "\t")
+            pipelineFile.write(str(registers[i]) + "\t")
         pipelineFile.write("\n")
 
         pipelineFile.write("R08:\t")
         for i in range(8, 16):
-            pipelineFile.write(str(self.registers[i]) + "\t")
+            pipelineFile.write(str(registers[i]) + "\t")
         pipelineFile.write("\n")
 
         pipelineFile.write("R16:\t")
         for i in range(16, 24):
-            pipelineFile.write(str(self.registers[i]) + "\t")
+            pipelineFile.write(str(registers[i]) + "\t")
         pipelineFile.write("\n")
 
         pipelineFile.write("R24:\t")
         for i in range(24, 32):
-            pipelineFile.write(str(self.registers[i]) + "\t")
+            pipelineFile.write(str(registers[i]) + "\t")
         pipelineFile.write("\n\n")
 
         ##### Cache Output #####
         pipelineFile.write("Cache\n")
         pipelineFile.write("Set 0: LRU=")
-        pipelineFile.write(str(self.cache.lruBit[0]))
+        pipelineFile.write(str(Cache.lruBit[0]))
         pipelineFile.write("\n\tEntry 0:")
-        pipelineFile.write("[(" + str(self.cache.cacheSets[0][0][0]) + "," +
-                           str(self.cache.cacheSets[0][0][1]) + "," +
-                           str(self.cache.cacheSets[0][0][2]) + ")<" +
-                           str(self.cache.cacheSets[0][0][3]) + "," +
-                           str(self.cache.cacheSets[0][0][4]) + ">]")
+        pipelineFile.write("[(" + str(Cache.cacheSets[0][0][0]) + "," +
+                           str(Cache.cacheSets[0][0][1]) + "," +
+                           str(Cache.cacheSets[0][0][2]) + ")<" +
+                           str(Cache.cacheSets[0][0][3]) + "," +
+                           str(Cache.cacheSets[0][0][4]) + ">]")
         pipelineFile.write("\n\tEntry 1:")
-        pipelineFile.write("[(" + str(self.cache.cacheSets[0][1][0]) + "," +
-                           str(self.cache.cacheSets[0][1][1]) + "," +
-                           str(self.cache.cacheSets[0][1][2]) + ")<" +
-                           str(self.cache.cacheSets[0][1][3]) + "," +
-                           str(self.cache.cacheSets[0][1][4]) + ">]")
+        pipelineFile.write("[(" + str(Cache.cacheSets[0][1][0]) + "," +
+                           str(Cache.cacheSets[0][1][1]) + "," +
+                           str(Cache.cacheSets[0][1][2]) + ")<" +
+                           str(Cache.cacheSets[0][1][3]) + "," +
+                           str(Cache.cacheSets[0][1][4]) + ">]")
         pipelineFile.write("\nSet 1: LRU=")
-        pipelineFile.write(str(self.cache.lruBit[1]))
+        pipelineFile.write(str(Cache.lruBit[1]))
         pipelineFile.write("\n\tEntry 0:")
-        pipelineFile.write("[(" + str(self.cache.cacheSets[1][0][0]) + "," +
-                           str(self.cache.cacheSets[1][0][1]) + "," +
-                           str(self.cache.cacheSets[1][0][2]) + ")<" +
-                           str(self.cache.cacheSets[1][0][3]) + "," +
-                           str(self.cache.cacheSets[1][0][4]) + ">]")
+        pipelineFile.write("[(" + str(Cache.cacheSets[1][0][0]) + "," +
+                           str(Cache.cacheSets[1][0][1]) + "," +
+                           str(Cache.cacheSets[1][0][2]) + ")<" +
+                           str(Cache.cacheSets[1][0][3]) + "," +
+                           str(Cache.cacheSets[1][0][4]) + ">]")
         pipelineFile.write("\n\tEntry 1:")
-        pipelineFile.write("[(" + str(self.cache.cacheSets[1][1][0]) + "," +
-                           str(self.cache.cacheSets[1][1][1]) + "," +
-                           str(self.cache.cacheSets[1][1][2]) + ")<" +
-                           str(self.cache.cacheSets[1][1][3]) + "," +
-                           str(self.cache.cacheSets[1][1][4]) + ">]")
+        pipelineFile.write("[(" + str(Cache.cacheSets[1][1][0]) + "," +
+                           str(Cache.cacheSets[1][1][1]) + "," +
+                           str(Cache.cacheSets[1][1][2]) + ")<" +
+                           str(Cache.cacheSets[1][1][3]) + "," +
+                           str(Cache.cacheSets[1][1][4]) + ">]")
         pipelineFile.write("\nSet 2: LRU=")
-        pipelineFile.write(str(self.cache.lruBit[2]))
+        pipelineFile.write(str(Cache.lruBit[2]))
         pipelineFile.write("\n\tEntry 0:")
-        pipelineFile.write("[(" + str(self.cache.cacheSets[2][0][0]) + "," +
-                           str(self.cache.cacheSets[2][0][1]) + "," +
-                           str(self.cache.cacheSets[2][0][2]) + ")<" +
-                           str(self.cache.cacheSets[2][0][3]) + "," +
-                           str(self.cache.cacheSets[2][0][4]) + ">]")
+        pipelineFile.write("[(" + str(Cache.cacheSets[2][0][0]) + "," +
+                           str(Cache.cacheSets[2][0][1]) + "," +
+                           str(Cache.cacheSets[2][0][2]) + ")<" +
+                           str(Cache.cacheSets[2][0][3]) + "," +
+                           str(Cache.cacheSets[2][0][4]) + ">]")
         pipelineFile.write("\n\tEntry 1:")
-        pipelineFile.write("[(" + str(self.cache.cacheSets[2][1][0]) + "," +
-                           str(self.cache.cacheSets[2][1][1]) + "," +
-                           str(self.cache.cacheSets[2][1][2]) + ")<" +
-                           str(self.cache.cacheSets[2][1][3]) + "," +
-                           str(self.cache.cacheSets[2][1][4]) + ">]")
+        pipelineFile.write("[(" + str(Cache.cacheSets[2][1][0]) + "," +
+                           str(Cache.cacheSets[2][1][1]) + "," +
+                           str(Cache.cacheSets[2][1][2]) + ")<" +
+                           str(Cache.cacheSets[2][1][3]) + "," +
+                           str(Cache.cacheSets[2][1][4]) + ">]")
         pipelineFile.write("\nSet 3: LRU=")
-        pipelineFile.write(str(self.cache.lruBit[3]))
+        pipelineFile.write(str(Cache.lruBit[3]))
         pipelineFile.write("\n\tEntry 0:")
-        pipelineFile.write("[(" + str(self.cache.cacheSets[3][0][0]) + "," +
-                           str(self.cache.cacheSets[3][0][1]) + "," +
-                           str(self.cache.cacheSets[3][0][2]) + ")<" +
-                           str(self.cache.cacheSets[3][0][3]) + "," +
-                           str(self.cache.cacheSets[3][0][4]) + ">]")
+        pipelineFile.write("[(" + str(Cache.cacheSets[3][0][0]) + "," +
+                           str(Cache.cacheSets[3][0][1]) + "," +
+                           str(Cache.cacheSets[3][0][2]) + ")<" +
+                           str(Cache.cacheSets[3][0][3]) + "," +
+                           str(Cache.cacheSets[3][0][4]) + ">]")
         pipelineFile.write("\n\tEntry 1:")
-        pipelineFile.write("[(" + str(self.cache.cacheSets[3][1][0]) + "," +
-                           str(self.cache.cacheSets[3][1][1]) + "," +
-                           str(self.cache.cacheSets[3][1][2]) + ")<" +
-                           str(self.cache.cacheSets[3][1][3]) + "," +
-                           str(self.cache.cacheSets[3][1][4]) + ">]")
+        pipelineFile.write("[(" + str(Cache.cacheSets[3][1][0]) + "," +
+                           str(Cache.cacheSets[3][1][1]) + "," +
+                           str(Cache.cacheSets[3][1][2]) + ")<" +
+                           str(Cache.cacheSets[3][1][3]) + "," +
+                           str(Cache.cacheSets[3][1][4]) + ">]")
         pipelineFile.write("\n\n")
 
         ##### Data Output #####
@@ -492,8 +595,9 @@ class Simulator:
 
     def run(self):
         go = True
+        self.PC = 96
         while go:
-            self.WB.run()
+            self.WB.run(LogicUnit.postALUBuff)
             self.ALU.run()
             self.MEM.run()
             self.issue.run()
